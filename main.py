@@ -2,13 +2,12 @@ import os
 import time
 import threading
 import requests
-from flask import Flask, request
+from flask import Flask
 import websocket
 import json
 
 app = Flask(__name__)
 
-# Credentials successfully added
 TELEGRAM_BOT_TOKEN = "8609436988:AAEEcnQgqZtlWPcOvMHgJGPhK8pTAz-TBeQ"
 TELEGRAM_CHAT_ID = "5573340878"
 
@@ -93,33 +92,47 @@ def start_websocket():
             print(f"WS Loop Error: {e}")
             time.sleep(5)
 
+# Telegram Polling (No Webhook Required!)
+def start_telegram_polling():
+    offset = 0
+    print("Telegram Polling Started...")
+    while True:
+        try:
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates?offset={offset}&timeout=30"
+            response = requests.get(url, timeout=35)
+            if response.status_code == 200:
+                data = response.json()
+                for result in data.get("result", []):
+                    offset = result["update_id"] + 1
+                    message = result.get("message", {})
+                    text = message.get("text", "")
+                    
+                    if text == "/test":
+                        send_telegram_message("✅ Bot is active and polling successfully!")
+                    elif text == "/signal":
+                        status_msg = "📊 *Current Market Status Check:*\n"
+                        if not latest_candles:
+                            status_msg += "⏳ Data loading... Please wait a few seconds and try again."
+                        else:
+                            for sym, cols in latest_candles.items():
+                                status_msg += f"- `{ASSETS.get(sym, sym)}`: `{' '.join(cols)}`\n"
+                        send_telegram_message(status_msg)
+        except Exception as e:
+            print(f"Polling Error: {e}")
+        time.sleep(2)
+
 @app.route("/", methods=["GET"])
 def home():
-    return "Deriv Bot is Running 24/7!", 200
-
-@app.route(f"/{TELEGRAM_BOT_TOKEN}", methods=["POST"])
-def telegram_webhook():
-    update = request.get_json()
-    if "message" in update:
-        chat_id = update["message"]["chat_id"] if "chat_id" in update["message"] else update["message"]["chat"]["id"]
-        text = update["message"].get("text", "")
-        
-        if text == "/test":
-            send_telegram_message("✅ Bot is active and connected to Render successfully!")
-        elif text == "/signal":
-            status_msg = "📊 *Current Market Status Check:*\n"
-            if not latest_candles:
-                status_msg += "⏳ Data loading... Please wait a few seconds and try again."
-            else:
-                for sym, cols in latest_candles.items():
-                    status_msg += f"- `{ASSETS.get(sym, sym)}`: `{' '.join(cols)}`\n"
-            send_telegram_message(status_msg)
-            
-    return "OK", 200
+    return "Deriv Bot is Running 24/7 with Polling!", 200
 
 if __name__ == "__main__":
+    # Start Deriv WebSocket Thread
     ws_thread = threading.Thread(target=start_websocket, daemon=True)
     ws_thread.start()
+    
+    # Start Telegram Polling Thread
+    bot_thread = threading.Thread(target=start_telegram_polling, daemon=True)
+    bot_thread.start()
     
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
