@@ -9,7 +9,7 @@ import json
 app = Flask(__name__)
 
 # Telegram Config (ඔයාගේ ටෝකන් සහ චැට් අයිඩී මෙතනට වැටෙයි - කලින් කෝඩ් එකේ තිබුණු ඒවාම දාන්න)
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "YOUR_BOT_TOKEN")
+TELEGRAM_BOT_TOKEN = os.environ.get("8609436988:AAEEcnQgqZtlWPcOvMHgJGPhK8pTAz-TBeQ", "5573340878")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "YOUR_CHAT_ID")
 
 def send_telegram_message(text):
