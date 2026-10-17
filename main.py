@@ -6,7 +6,7 @@ import requests
 import websockets
 from flask import Flask
 
-# 1. Dummy Web Server to keep Render Web Service alive
+# 1. Dummy Web Server
 app = Flask(__name__)
 
 @app.route('/')
@@ -17,7 +17,7 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-# 2. Telegram Details
+# 2. Telegram Setup
 TELEGRAM_BOT_TOKEN = "8609436988:AAEEcnQgqZtlWPcOvMHgJGPhK8pTAz-TBeQ"
 TELEGRAM_CHAT_ID = "5573340878"
 
@@ -25,11 +25,16 @@ def send_telegram_msg(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
     try:
-        requests.post(url, json=payload)
+        response = requests.post(url, json=payload, timeout=10)
+        res_data = response.json()
+        if res_data.get("ok"):
+            print(">>> Telegram message sent successfully!")
+        else:
+            print(">>> Telegram API Error:", res_data)
     except Exception as e:
-        print("Telegram error:", e)
+        print(">>> Telegram Request Exception:", e)
 
-# 3. Deriv WebSocket Logic
+# 3. Deriv WebSocket
 async def connect_deriv():
     uri = "wss://ws.derivws.com/websockets/v3?app_id=1089"
     headers = {
@@ -38,8 +43,11 @@ async def connect_deriv():
     
     while True:
         try:
+            print(">>> Connecting to Deriv WebSocket...")
             async with websockets.connect(uri, extra_headers=headers) as websocket:
-                print("Connected to Deriv WebSocket successfully!")
+                print(">>> Connected to Deriv WebSocket!")
+                
+                # Telegram එකට මැසේජ් එක යැවීම
                 send_telegram_msg("🚀 Deriv Signal Bot Connected Successfully & Monitoring 24/7!")
                 
                 while True:
@@ -47,7 +55,7 @@ async def connect_deriv():
                     await asyncio.sleep(30)
                     
         except Exception as e:
-            print(f"Connection error: {e}. Retrying in 10 seconds...")
+            print(f">>> Deriv Connection error: {e}. Retrying in 10 seconds...")
             await asyncio.sleep(10)
 
 def start_bot_thread():
