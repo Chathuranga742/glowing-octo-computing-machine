@@ -1,49 +1,65 @@
 import asyncio
 import json
+import os
+import threading
 import requests
 import websockets
+from flask import Flask
 
-# මෙතනට ඔයාගේ ඇත්තම ටෝකන් එක සහ චැට් අයිඩී එක Quotes (" ") ඇතුළට දාන්න
-TELEGRAM_BOT_TOKEN = "8609436988:AAEEcnQgqZtlWPcOvMHgJGPhK8pTAz-TBeQ"
-TELEGRAM_CHAT_ID = "5573340878"
+# 1. Dummy Web Server to keep Render Web Service alive
+app = Flask(name)
+
+@app.route('/')
+def home():
+    return "Deriv Bot is Running 24/7!"
+
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
+
+# 2. Deriv WebSocket Logic
+TELEGRAM_BOT_TOKEN = "8609436988:AAEEcnQgqZtlWPcOvMHgJGPhK8pTAz-TBeQ"  # ඔයාගේ Telegram Bot Token එක මෙතැනට දාන්න
+TELEGRAM_CHAT_ID = "5573340878"      # ඔයාගේ Telegram Chat ID එක මෙතැනට දාන්න
 
 def send_telegram_msg(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
     try:
-        response = requests.post(url, json=payload)
-        print("Telegram Response:", response.text)
+        requests.post(url, json=payload)
     except Exception as e:
-        print(f"Telegram Error: {e}")
+        print("Telegram error:", e)
 
-async def monitor_deriv():
-    print("Starting bot and sending telegram message...")
-    send_telegram_msg("🚀 Deriv Signal Bot Connected! Monitoring Volatility Indices 24/7...")
+async def connect_deriv():
+    # Standard public App ID = 1089
     uri = "wss://ws.derivws.com/websockets/v3?app_id=1089"
     
-    async with websockets.connect(uri) as websocket:
-        req = {
-            "ticks_history": "R_100",
-            "adjust_start_time": 1,
-            "count": 5,
-            "end": "latest",
-            "style": "candles",
-            "granularity": 60,
-            "subscribe": 1
-        }
-        await websocket.send(json.dumps(req))
-        
-        while True:
-            response = await websocket.recv()
-            data = json.loads(response)
-            
-            if "ohlc" in data:
-                ohlc = data["ohlc"]
-                open_price = float(ohlc["open"])
-                close_price = float(ohlc["close"])
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+    }
+    
+    while True:
+        try:
+            async with websockets.connect(uri, extra_headers=headers) as websocket:
+                print("Connected to Deriv WebSocket successfully!")
+                send_telegram_msg("🚀 Deriv Signal Bot Connected Successfully & Monitoring 24/7!")
                 
-                if close_price > open_price:
-                    print(f"Bullish candle detected: {close_price}")
-            await asyncio.sleep(1)
+                # Ping keep-alive loop
+                while True:
+                    await websocket.send(json.dumps({"ping": 1}))
+                    await asyncio.sleep(30)
+                    
+        except Exception as e:
+            print(f"Connection error: {e}. Retrying in 10 seconds...")
+            await asyncio.sleep(10)
 
-asyncio.run(monitor_deriv())
+def start_bot_thread():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(connect_deriv())
+
+if name == "main":
+    # Start Telegram bot thread
+    threading.Thread(target=start_bot_thread, daemon=True).start()
+    
+    # Start Flask Web Server
+    run_flask()
