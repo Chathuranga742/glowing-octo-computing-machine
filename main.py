@@ -7,7 +7,7 @@ import websockets
 from flask import Flask
 
 # 1. Dummy Web Server to keep Render Web Service alive
-app = Flask(_name_)
+app = Flask(__name__)
 
 @app.route('/')
 def home():
