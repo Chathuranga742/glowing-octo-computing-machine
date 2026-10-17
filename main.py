@@ -1,62 +1,33 @@
-import asyncio
-import json
 import os
-import threading
 import requests
-import websockets
 from flask import Flask
 
 app = Flask(__name__)
 
+# Telegram Configuration
 TELEGRAM_BOT_TOKEN = "8609436988:AAEEcnQgqZtlWPcOvMHgJGPhK8pTAz-TBeQ"
 TELEGRAM_CHAT_ID = "5573340878"
 
-def send_telegram_msg(message):
+def send_instant_msg():
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID, 
+        "text": "🔥 Direct Test Message from Render Server!"
+    }
     try:
         res = requests.post(url, json=payload, timeout=10)
-        print(">>> Telegram API Response:", res.json())
+        print(">>> Instant Telegram Result:", res.json())
     except Exception as e:
-        print(">>> Telegram Request Error:", e)
+        print(">>> Instant Telegram Error:", e)
 
-async def connect_deriv():
-    uri = "wss://ws.derivws.com/websockets/v3?app_id=1089"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    
-    while True:
-        try:
-            print(">>> Connecting to Deriv WebSocket...")
-            async with websockets.connect(uri, extra_headers=headers) as websocket:
-                print(">>> Connected to Deriv WebSocket successfully!")
-                
-                # Telegram Message එක යවනවා
-                send_telegram_msg("🚀 Deriv Signal Bot Connected Successfully & Monitoring 24/7!")
-                
-                while True:
-                    await websocket.send(json.dumps({"ping": 1}))
-                    await asyncio.sleep(30)
-                    
-        except Exception as e:
-            print(f">>> WebSocket Error: {e}. Retrying in 10s...")
-            await asyncio.sleep(10)
-
-def start_background_loop():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(connect_deriv())
-
-# Server එක Start වෙන මොහොතෙම Thread එක Automatic Start කිරීමට:
-def init_bot():
-    t = threading.Thread(target=start_background_loop, daemon=True)
-    t.start()
-
-# Flask App එක load වෙද්දිම Bot එක Start වෙනවා
-init_bot()
+# Server එක start වෙන ගමන්ම Message එක යවනවා
+send_instant_msg()
 
 @app.route('/')
 def home():
-    return "Deriv Bot is Running 24/7!"
+    # Link එකට ගියාමත් Message එකක් Telegram එකට යනවා
+    send_instant_msg()
+    return "Deriv Bot is Live and Ready!"
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
