@@ -8,7 +8,6 @@ from flask import Flask
 
 # 1. Dummy Web Server to keep Render Web Service alive
 app = Flask(name)
-
 @app.route('/')
 def home():
     return "Deriv Bot is Running 24/7!"
