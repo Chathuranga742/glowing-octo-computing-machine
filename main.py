@@ -1,23 +1,11 @@
 import os
 import time
 import threading
-import requests
-from flask import Flask
-import websocket
 import json
+import websocket
+from flask import Flask, render_template_string
 
 app = Flask(__name__)
-
-TELEGRAM_BOT_TOKEN = "8609436988:AAEEcnQgqZtlWPcOvMHgJGPhK8pTAz-TBeQ"
-TELEGRAM_CHAT_ID = "5573340878"
-
-def send_telegram_message(text):
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "Markdown"}
-    try:
-        requests.post(url, json=payload, timeout=5)
-    except Exception as e:
-        print(f"Telegram Error: {e}")
 
 # Deriv Volatility Indices 10
 ASSETS = {
@@ -34,6 +22,55 @@ ASSETS = {
 }
 
 latest_candles = {}
+signals_log = []  # Screen එකේ පෙන්නන්න සිග්නල් ටික සේව් කරගන්න ලિස්ට් එකක්
+
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Deriv Reversal Signals Bot</title>
+    <meta http-equiv="refresh" content="5"> <!-- තත්පර 5න් 5ට page එක auto refresh වෙයි -->
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #121212; color: #ffffff; text-align: center; padding: 20px; }
+        h1 { color: #00ffcc; }
+        .status { color: #00ff00; font-weight: bold; margin-bottom: 20px; }
+        table { width: 100%; max-width: 800px; margin: 0 auto; border-collapse: collapse; background: #1e1e1e; border-radius: 8px; overflow: hidden; }
+        th, td { padding: 12px; border-bottom: 1px solid #333; text-align: center; }
+        th { background-color: #333; color: #ffcc00; }
+        .buy { color: #00ff00; font-weight: bold; }
+        .sell { color: #ff3333; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>🚀 Deriv Live Reversal Signals Dashboard</h1>
+    <div class="status">● Bot is Running 24/7 (Auto-updating every 5s)</div>
+    
+    <table>
+        <tr>
+            <th>Time</th>
+            <th>Asset</th>
+            <th>Pattern</th>
+            <th>Action</th>
+        </tr>
+        {% if signals %}
+            {% for sig in signals %}
+            <tr>
+                <td>{{ sig.time }}</td>
+                <td>{{ sig.asset }}</td>
+                <td>{{ sig.pattern }}</td>
+                <td class="{{ 'buy' if 'BUY' in sig.action else 'sell' }}">{{ sig.action }}</td>
+            </tr>
+            {% endfor %}
+        {% else %}
+            <tr>
+                <td colspan="4" style="color: #888;">Waiting for market reversal patterns... (Make sure market is open)</td>
+            </tr>
+        {% endif %}
+    </table>
+</body>
+</html>
+"""
 
 def on_message(ws, message):
     try:
@@ -57,9 +94,23 @@ def on_message(ws, message):
             if len(history) >= 3:
                 p1, p2, p3 = history[-3], history[-2], history[-1]
                 if (p1 == "🔴" and p2 == "🔴" and p3 == "🟢") or (p1 == "🟢" and p2 == "🟢" and p3 == "🔴"):
-                    signal_type = "📈 BUY (CALL)" if p3 == "🟢" else "📉 SELL (PUT)"
-                    msg = f"🚨 *Deriv Reversal Signal!* 🚨\n\nAsset: `{ASSETS.get(symbol, symbol)}`\nPattern: `{p1} {p2} {p3}`\nAction: *{signal_type}*"
-                    send_telegram_message(msg)
+                    signal_type = "BUY (CALL)" if p3 == "🟢" else "SELL (PUT)"
+                    
+                    # Current time format
+                    current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+                    
+                    signal_entry = {
+                        "time": current_time,
+                        "asset": ASSETS.get(symbol, symbol),
+                        "pattern": f"{p1} {p2} {p3}",
+                        "action": signal_type
+                    }
+                    
+                    # අලුත්ම සිග්නල් එක උඩින්ම වැටෙන්න දාමු
+                    signals_log.insert(0, signal_entry)
+                    if len(signals_log) > 20:  # උපරිම සිග්නල් 20ක් විතරක් ස්ක්‍රීන් එකේ තියාගමු
+                        signals_log.pop()
+                        
     except Exception as e:
         print(f"WS Error: {e}")
 
@@ -92,47 +143,14 @@ def start_websocket():
             print(f"WS Loop Error: {e}")
             time.sleep(5)
 
-# Telegram Polling (No Webhook Required!)
-def start_telegram_polling():
-    offset = 0
-    print("Telegram Polling Started...")
-    while True:
-        try:
-            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates?offset={offset}&timeout=30"
-            response = requests.get(url, timeout=35)
-            if response.status_code == 200:
-                data = response.json()
-                for result in data.get("result", []):
-                    offset = result["update_id"] + 1
-                    message = result.get("message", {})
-                    text = message.get("text", "")
-                    
-                    if text == "/test":
-                        send_telegram_message("✅ Bot is active and polling successfully!")
-                    elif text == "/signal":
-                        status_msg = "📊 *Current Market Status Check:*\n"
-                        if not latest_candles:
-                            status_msg += "⏳ Data loading... Please wait a few seconds and try again."
-                        else:
-                            for sym, cols in latest_candles.items():
-                                status_msg += f"- `{ASSETS.get(sym, sym)}`: `{' '.join(cols)}`\n"
-                        send_telegram_message(status_msg)
-        except Exception as e:
-            print(f"Polling Error: {e}")
-        time.sleep(2)
-
 @app.route("/", methods=["GET"])
 def home():
-    return "Deriv Bot is Running 24/7 with Polling!", 200
+    return render_template_string(HTML_TEMPLATE, signals=signals_log)
 
 if __name__ == "__main__":
     # Start Deriv WebSocket Thread
     ws_thread = threading.Thread(target=start_websocket, daemon=True)
     ws_thread.start()
-    
-    # Start Telegram Polling Thread
-    bot_thread = threading.Thread(target=start_telegram_polling, daemon=True)
-    bot_thread.start()
     
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
