@@ -1,150 +1,133 @@
-import asyncio
-import json
 import os
+import time
 import threading
 import requests
-import websockets
-from flask import Flask
+from flask import Flask, request
+import websocket
+import json
 
 app = Flask(__name__)
 
-TELEGRAM_BOT_TOKEN = "8609436988:AAEEcnQgqZtlWPcOvMHgJGPhK8pTAz-TBeQ"
-TELEGRAM_CHAT_ID = "5573340878"
+# Telegram Config (ඔයාගේ ටෝකන් සහ චැට් අයිඩී මෙතනට වැටෙයි - කලින් කෝඩ් එකේ තිබුණු ඒවාම දාන්න)
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "YOUR_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "YOUR_CHAT_ID")
 
-SYMBOLS = [
-    "R_10", "R_25", "R_50", "R_75", "R_100",
-    "1HZ10V", "1HZ25V", "1HZ50V", "1HZ75V", "1HZ100V"
-]
-
-def send_telegram_msg(message):
+def send_telegram_message(text):
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        print("Telegram credentials missing!")
+        return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "Markdown"}
     try:
-        requests.post(url, json=payload, timeout=10)
+        requests.post(url, json=payload, timeout=5)
     except Exception as e:
-        print(">>> Telegram Error:", e)
+        print(f"Telegram Error: {e}")
 
-# Telegram /test Command Listener
-def poll_telegram_commands():
-    last_update_id = 0
+# Deriv Volatility Indices 10
+ASSETS = {
+    "R_10": "Volatility 10 Index",
+    "R_25": "Volatility 25 Index",
+    "R_50": "Volatility 50 Index",
+    "R_75": "Volatility 75 Index",
+    "R_100": "Volatility 100 Index",
+    "1HZ10V": "Volatility 10 (1s) Index",
+    "1HZ25V": "Volatility 25 (1s) Index",
+    "1HZ50V": "Volatility 50 (1s) Index",
+    "1HZ75V": "Volatility 75 (1s) Index",
+    "1HZ100V": "Volatility 100 (1s) Index"
+}
+
+latest_candles = {}
+
+def on_message(ws, message):
+    try:
+        data = json.loads(message)
+        if "ohlc" in data:
+            candle = data["ohlc"]
+            symbol = candle["symbol"]
+            # Close price gannawa (Green nam o, < c, Red nam o > c)
+            open_p = float(candle.get("open", 0))
+            close_p = float(candle.get("close", 0))
+            
+            color = "🟢" if close_p >= open_p else "🔴"
+            
+            if symbol not in latest_candles:
+                latest_candles[symbol] = []
+                
+            # Last candles list eke save karagannawa
+            latest_candles[symbol].append(color)
+            if len(latest_candles[symbol]) > 5:
+                latest_candles[symbol].pop(0)
+                
+            # Pattern check karanawa (🔴🔴🟢 or 🟢🟢🔴)
+            history = latest_candles[symbol]
+            if len(history) >= 3:
+                p1, p2, p3 = history[-3], history[-2], history[-1]
+                if (p1 == "🔴" and p2 == "🔴" and p3 == "🟢") or (p1 == "🟢" and p2 == "🟢" and p3 == "🔴"):
+                    signal_type = "📈 BUY (CALL)" if p3 == "🟢" else "📉 SELL (PUT)"
+                    msg = f"🚨 *Deriv Reversal Signal!* 🚨\n\nAsset: `{ASSETS.get(symbol, symbol)}`\nPattern: `{p1} {p2} {p3}`\nAction: *{signal_type}*"
+                    send_telegram_message(msg)
+    except Exception as e:
+        print(f"WS Error: {e}")
+
+def on_error(ws, error):
+    print(f"WebSocket Error: {error}")
+
+def on_close(ws, close_status_code, close_msg):
+    print("WebSocket Closed. Reconnecting...")
+    time.sleep(5)
+    start_websocket()
+
+def on_open(ws):
+    print("Connected to Deriv WebSocket! Subscribing to assets...")
+    for symbol in ASSETS.keys():
+        sub_req = {"sub_ticks_history": symbol, "style": "candles", "granularity": 60}
+        ws.send(json.dumps(sub_req))
+
+def start_websocket():
     while True:
         try:
-            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates?offset={last_update_id + 1}&timeout=5"
-            res = requests.get(url, timeout=10).json()
-            if res.get("ok") and res.get("result"):
-                for update in res["result"]:
-                    last_update_id = update["update_id"]
-                    msg = update.get("message", {})
-                    text = msg.get("text", "")
-                    chat_id = str(msg.get("chat", {}).get("id", ""))
-                    
-                    if text == "/test" and chat_id == TELEGRAM_CHAT_ID:
-                        send_telegram_msg("✅ *BOT IS LIVE & SCALPING DERIV 24/7!*\n\n📊 Volatility Indices 10 ම Scan වෙමින් පවතී. Pattern එකක් ලැබුණු සැනින් Signals එනු ඇත! 🚀")
+            ws = websocket.WebSocketApp(
+                "wss://ws.derivws.com/websockets/v3?app_id=1089",
+                on_open=on_open,
+                on_message=on_message,
+                on_error=on_error,
+                on_close=on_close
+            )
+            ws.run_forever()
         except Exception as e:
-            pass
-        threading.Event().wait(3)
+            print(f"WS Loop Error: {e}")
+            time.sleep(5)
 
-@app.route('/')
+@app.route("/", methods=["GET"])
 def home():
-    return "Deriv Fast Signal Engine is Active 24/7!"
+    return "Deriv Bot is Running 24/7!", 200
 
-async def monitor_symbol(symbol):
-    uri = "wss://ws.derivws.com/websockets/v3?app_id=1089"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    
-    while True:
-        try:
-            async with websockets.connect(uri, extra_headers=headers) as websocket:
-                req = {
-                    "ticks_history": symbol,
-                    "adjust_start_time": 1,
-                    "count": 10,
-                    "end": "latest",
-                    "style": "candles",
-                    "granularity": 60,
-                    "subscribe": 1
-                }
-                await websocket.send(json.dumps(req))
-                
-                candles_list = []
-                last_epoch = 0
-                
-                while True:
-                    res = json.loads(await websocket.recv())
-                    
-                    if "candles" in res:
-                        candles_list = res["candles"]
-                        
-                    elif "ohlc" in res:
-                        ohlc = res["ohlc"]
-                        current_epoch = ohlc["open_time"]
-                        
-                        if current_epoch != last_epoch and len(candles_list) >= 3:
-                            c1 = candles_list[-3]
-                            c2 = candles_list[-2]
-                            c3 = candles_list[-1]
-                            
-                            c1_g = c1["close"] > c1["open"]
-                            c2_g = c2["close"] > c2["open"]
-                            c3_r = c3["close"] < c3["open"]
-                            
-                            c1_r = c1["close"] < c1["open"]
-                            c2_r = c2["close"] < c2["open"]
-                            c3_g = c3["close"] > c3["open"]
-                            
-                            # Pattern 1: 🔴🔴 ➔ 🟢 (BUY Signal)
-                            if c1_r and c2_r and c3_g:
-                                min_low = min(c1["low"], c2["low"])
-                                send_telegram_msg(
-                                    f"🟢 *FAST BUY SIGNAL*\n\n"
-                                    f"📊 *Market:* {symbol}\n"
-                                    f"🕯️ *Pattern:* 🔴🔴🟢 (2 Red + 1 Green)\n"
-                                    f"🎯 *Support Level:* {min_low}\n"
-                                    f"⚡ *Action:* Open HIGHER Trade Now!"
-                                )
-                                
-                            # Pattern 2: 🟢🟢 ➔ 🔴 (SELL Signal)
-                            elif c1_g and c2_g and c3_r:
-                                max_high = max(c1["high"], c2["high"])
-                                send_telegram_msg(
-                                    f"🔴 *FAST SELL SIGNAL*\n\n"
-                                    f"📊 *Market:* {symbol}\n"
-                                    f"🕯️ *Pattern:* 🟢🟢🔴 (2 Green + 1 Red)\n"
-                                    f"🎯 *Resistance Level:* {max_high}\n"
-                                    f"⚡ *Action:* Open LOWER Trade Now!"
-                                )
-                                
-                            last_epoch = current_epoch
-                            
-                            candles_list.append({
-                                "open": float(ohlc["open"]),
-                                "high": float(ohlc["high"]),
-                                "low": float(ohlc["low"]),
-                                "close": float(ohlc["close"]),
-                                "epoch": ohlc["open_time"]
-                            })
-                            if len(candles_list) > 20:
-                                candles_list.pop(0)
-
-        except Exception as e:
-            await asyncio.sleep(5)
-
-async def start_all_monitors():
-    send_telegram_msg("🚀 *Deriv Signal Bot Online! Type /test to check live status.*")
-    tasks = [monitor_symbol(sym) for sym in SYMBOLS]
-    await asyncio.gather(*tasks)
-
-def run_async_loop():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(start_all_monitors())
-
-t_bot = threading.Thread(target=run_async_loop, daemon=True)
-t_bot.start()
-
-t_cmd = threading.Thread(target=poll_telegram_commands, daemon=True)
-t_cmd.start()
+@app.route(f"/{TELEGRAM_BOT_TOKEN}", methods=["POST"])
+def telegram_webhook():
+    update = request.get_json()
+    if "message" in update:
+        chat_id = update["message"]["chat_id"] if "chat_id" in update["message"] else update["message"]["chat"]["id"]
+        text = update["message"].get("text", "")
+        
+        if text == "/test":
+            send_telegram_message("✅ Bot is active and connected to Render successfully!")
+        elif text == "/signal":
+            # Manual request ekakata current status eka balanna
+            status_msg = "📊 *Current Market Status Check:*\n"
+            if not latest_candles:
+                status_msg += "⏳ Data loading... Please wait a few seconds and try again."
+            else:
+                for sym, cols in latest_candles.items():
+                    status_msg += f"- `{ASSETS.get(sym, sym)}`: `{' '.join(cols)}`\n"
+            send_telegram_message(status_msg)
+            
+    return "OK", 200
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
+    # Background thread eke Deriv WebSocket eka run karanawa
+    ws_thread = threading.Thread(target=start_websocket, daemon=True)
+    ws_thread.start()
+    
+    port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
