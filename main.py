@@ -47,4 +47,4 @@ async def monitor_deriv():
             await asyncio.sleep(1)
 
 if name == "main":
-    asyncio.run(monitor_deriv())
+asyncio.run(monitor_deriv())
