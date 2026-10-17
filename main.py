@@ -17,9 +17,9 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-# 2. Telegram Details (ඔයාගේ Telegram Token එක සහ Chat ID එක මෙතැනට දාන්න)
-TELEGRAM_BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
-TELEGRAM_CHAT_ID = "YOUR_TELEGRAM_CHAT_ID"
+# 2. Telegram Details
+TELEGRAM_BOT_TOKEN = "8609436988:AAEEcnQgqZtlWPcOvMHgJGPhK8pTAz-TBeQ"
+TELEGRAM_CHAT_ID = "5573340878"
 
 def send_telegram_msg(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -31,7 +31,6 @@ def send_telegram_msg(message):
 
 # 3. Deriv WebSocket Logic
 async def connect_deriv():
-    # Standard Public App ID = 1089 (Connection Reject වීම වැළැක්වීමට)
     uri = "wss://ws.derivws.com/websockets/v3?app_id=1089"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
@@ -43,7 +42,6 @@ async def connect_deriv():
                 print("Connected to Deriv WebSocket successfully!")
                 send_telegram_msg("🚀 Deriv Signal Bot Connected Successfully & Monitoring 24/7!")
                 
-                # Ping keep-alive loop
                 while True:
                     await websocket.send(json.dumps({"ping": 1}))
                     await asyncio.sleep(30)
@@ -57,9 +55,6 @@ def start_bot_thread():
     asyncio.set_event_loop(loop)
     loop.run_until_complete(connect_deriv())
 
-if _name_ == "_main_":
-    # Start Telegram bot in background thread
+if __name__ == "__main__":
     threading.Thread(target=start_bot_thread, daemon=True).start()
-    
-    # Start Flask Web Server
     run_flask()
