@@ -8,9 +8,11 @@ from flask import Flask
 
 app = Flask(__name__)
 
+# Telegram Bot Credentials
 TELEGRAM_BOT_TOKEN = "8609436988:AAEEcnQgqZtlWPcOvMHgJGPhK8pTAz-TBeQ"
 TELEGRAM_CHAT_ID = "5573340878"
 
+# Volatility Indices
 SYMBOLS = [
     "R_10", "R_25", "R_50", "R_75", "R_100",
     "1HZ10V", "1HZ25V", "1HZ50V", "1HZ75V", "1HZ100V"
@@ -26,7 +28,7 @@ def send_telegram_msg(message):
 
 @app.route('/')
 def home():
-    return "Deriv 3-Candle Strategy Bot is Active!"
+    return "Deriv Precise Signal Bot is Active 24/7!"
 
 async def monitor_symbol(symbol):
     uri = "wss://ws.derivws.com/websockets/v3?app_id=1089"
@@ -38,7 +40,7 @@ async def monitor_symbol(symbol):
                 req = {
                     "ticks_history": symbol,
                     "adjust_start_time": 1,
-                    "count": 10,
+                    "count": 15,
                     "end": "latest",
                     "style": "candles",
                     "granularity": 60,
@@ -46,91 +48,85 @@ async def monitor_symbol(symbol):
                 }
                 await websocket.send(json.dumps(req))
                 
-                candles = []
-                last_processed_epoch = 0
-                alerted_epochs = set()
+                candles_list = []
+                last_epoch = 0
+                alerted_3_epoch = 0
                 
                 while True:
-                    response = json.loads(await websocket.recv())
+                    res = json.loads(await websocket.recv())
                     
-                    if "candles" in response:
-                        candles = response["candles"]
+                    if "candles" in res:
+                        candles_list = res["candles"]
                         
-                    elif "ohlc" in response:
-                        ohlc = response["ohlc"]
+                    elif "ohlc" in res:
+                        ohlc = res["ohlc"]
                         current_epoch = ohlc["open_time"]
                         
-                        # Process when candle closes
-                        if current_epoch != last_processed_epoch:
-                            if len(candles) >= 4:
-                                c1 = candles[-3] # 3rd oldest
-                                c2 = candles[-2] # 2nd oldest
-                                c3 = candles[-1] # Newly closed 3rd candle
-                                
-                                is_c1_green = c1["close"] > c1["open"]
-                                is_c2_green = c2["close"] > c2["open"]
-                                is_c3_green = c3["close"] > c3["open"]
-                                
-                                is_c1_red   = c1["close"] < c1["open"]
-                                is_c2_red   = c2["close"] < c2["open"]
-                                is_c3_red   = c3["close"] < c3["open"]
-                                
-                                recent_high = max(c1["high"], c2["high"], c3["high"])
-                                recent_low  = min(c1["low"], c2["low"], c3["low"])
-                                
-                                # 🟢🟢🟢 Green 3 Alert
-                                if is_c1_green and is_c2_green and is_c3_green:
-                                    if current_epoch not in alerted_epochs:
-                                        msg = f"⚠️ *PATTERN ALERT ({symbol})*\n🟢🟢🟢 කොළ Candles 3ක් හැදුණා! ඊළඟ Candle එක රතු වුණොත් **SELL** Signal එකක් එනු ඇත.\n🎯 Resistance: {recent_high}"
-                                        send_telegram_msg(msg)
-                                        alerted_epochs.add(current_epoch)
-                                        
-                                # 🔴🔴🔴 Red 3 Alert
-                                elif is_c1_red and is_c2_red and is_c3_red:
-                                    if current_epoch not in alerted_epochs:
-                                        msg = f"⚠️ *PATTERN ALERT ({symbol})*\n🔴🔴🔴 රතු Candles 3ක් හැදුණා! ඊළඟ Candle එක කොළ වුණොත් **BUY** Signal එකක් එනු ඇත.\n🎯 Support: {recent_low}"
-                                        send_telegram_msg(msg)
-                                        alerted_epochs.add(current_epoch)
-
-                                # Full Signal Verification (4th Candle Reversal)
-                                if len(candles) >= 5:
-                                    c0 = candles[-4]
-                                    c1_p = candles[-3]
-                                    c2_p = candles[-2]
-                                    c3_p = candles[-1] # Current closed 4th candle
-                                    
-                                    g1 = c0["close"] > c0["open"]
-                                    g2 = c1_p["close"] > c1_p["open"]
-                                    g3 = c2_p["close"] > c2_p["open"]
-                                    r4 = c3_p["close"] < c3_p["open"]
-                                    
-                                    r1 = c0["close"] < c0["open"]
-                                    r2 = c1_p["close"] < c1_p["open"]
-                                    r3 = c2_p["close"] < c2_p["open"]
-                                    g4 = c3_p["close"] > c3_p["open"]
-                                    
-                                    if g1 and g2 and g3 and r4:
-                                        send_telegram_msg(f"🔴 *SELL SIGNAL ({symbol})*\n🟢🟢🟢🔴 Setup Complete!\n🎯 Resistance Level: {max(c0['high'], c1_p['high'], c2_p['high'])}")
-                                    elif r1 and r2 and r3 and g4:
-                                        send_telegram_msg(f"🟢 *BUY SIGNAL ({symbol})*\n🔴🔴🔴🟢 Setup Complete!\n🎯 Support Level: {min(c0['low'], c1_p['low'], c2_p['low'])}")
-
-                            last_processed_epoch = current_epoch
+                        # Candle එකක් සම්පූර්ණයෙන් Close වුණාම පමණක් Check කරයි
+                        if current_epoch != last_epoch and len(candles_list) >= 4:
+                            c1 = candles_list[-4] # Older candle
+                            c2 = candles_list[-3]
+                            c3 = candles_list[-2] # 3rd candle
+                            c4 = candles_list[-1] # Newly closed candle
                             
-                            candles.append({
+                            c1_g = c1["close"] > c1["open"]
+                            c2_g = c2["close"] > c2["open"]
+                            c3_g = c3["close"] > c3["open"]
+                            c4_r = c4["close"] < c4["open"]
+                            
+                            c1_r = c1["close"] < c1["open"]
+                            c2_r = c2["close"] < c2["open"]
+                            c3_r = c3["close"] < c3["open"]
+                            c4_g = c4["close"] > c4["open"]
+                            
+                            # 1. Alert for 3 Consecutive Candles
+                            if c2_r and c3_r and c4_r and alerted_3_epoch != current_epoch:
+                                send_telegram_msg(f"⚠️ *PATTERN ALERT ({symbol})*\n🔴🔴🔴 පිටපිට රතු Candles 3ක් හැදුණා!\n🎯 ඊළඟ Candle එක කොළ වුණොත් BUY Signal එකක් එනු ඇත.")
+                                alerted_3_epoch = current_epoch
+                                
+                            elif c2_g and c3_g and c4_g and alerted_3_epoch != current_epoch:
+                                send_telegram_msg(f"⚠️ *PATTERN ALERT ({symbol})*\n🟢🟢🟢 පිටපිට කොළ Candles 3ක් හැදුණා!\n🎯 ඊළඟ Candle එක රතු වුණොත් SELL Signal එකක් එනු ඇත.")
+                                alerted_3_epoch = current_epoch
+
+                            # 2. Complete 4-Candle Pattern Reversal Signals
+                            if c1_r and c2_r and c3_r and c4_g:
+                                min_low = min(c1["low"], c2["low"], c3["low"])
+                                send_telegram_msg(
+                                    f"🟢 *BUY / HIGHER SIGNAL*\n\n"
+                                    f"📊 *Market:* {symbol}\n"
+                                    f"🕯️ *Pattern:* 🔴🔴🔴🟢 (Support Reversal)\n"
+                                    f"🎯 *Support Level:* {min_low}\n"
+                                    f"⚡ *Action:* Open HIGHER Trade Now!"
+                                )
+                                
+                            elif c1_g and c2_g and c3_g and c4_r:
+                                max_high = max(c1["high"], c2["high"], c3["high"])
+                                send_telegram_msg(
+                                    f"🔴 *SELL / LOWER SIGNAL*\n\n"
+                                    f"📊 *Market:* {symbol}\n"
+                                    f"🕯️ *Pattern:* 🟢🟢🟢🔴 (Resistance Reversal)\n"
+                                    f"🎯 *Resistance Level:* {max_high}\n"
+                                    f"⚡ *Action:* Open LOWER Trade Now!"
+                                )
+                                
+                            last_epoch = current_epoch
+                            
+                            # Candle එක Buffer එකට එකතු කිරීම
+                            candles_list.append({
                                 "open": float(ohlc["open"]),
                                 "high": float(ohlc["high"]),
                                 "low": float(ohlc["low"]),
                                 "close": float(ohlc["close"]),
                                 "epoch": ohlc["open_time"]
                             })
-                            if len(candles) > 20:
-                                candles.pop(0)
+                            if len(candles_list) > 30:
+                                candles_list.pop(0)
 
         except Exception as e:
             await asyncio.sleep(5)
 
 async def start_all_monitors():
-    send_telegram_msg("🚀 *Deriv 3-Candle Tracker Activated!*")
+    send_telegram_msg("🚀 *Deriv Signal Engine Updated & Fixed 24/7!*")
     tasks = [monitor_symbol(sym) for sym in SYMBOLS]
     await asyncio.gather(*tasks)
 
