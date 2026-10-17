@@ -1,13 +1,16 @@
 import asyncio
 import json
+import os
 import requests
 import websockets
 
-# Telegram Details
-TELEGRAM_BOT_TOKEN = "8609436988:AAEEcnQgqZtlWPcOvMHgJGPhK8pTAz-TBeQ"
-TELEGRAM_CHAT_ID = "5573340878"
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 def send_telegram_msg(message):
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        print("Telegram tokens not set!")
+        return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
     try:
@@ -20,7 +23,6 @@ async def monitor_deriv():
     uri = "wss://ws.derivws.com/websockets/v3?app_id=1089"
     
     async with websockets.connect(uri) as websocket:
-        # Subscribe to Volatility 100 Index
         req = {
             "ticks_history": "R_100",
             "adjust_start_time": 1,
@@ -41,10 +43,9 @@ async def monitor_deriv():
                 open_price = float(ohlc["open"])
                 close_price = float(ohlc["close"])
                 
-                # Signal Logic example
                 if close_price > open_price:
                     print(f"Bullish candle detected: {close_price}")
             await asyncio.sleep(1)
 
 if name == "main":
-asyncio.run(monitor_deriv())
+    asyncio.run(monitor_deriv())
