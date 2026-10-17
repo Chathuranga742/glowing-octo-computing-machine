@@ -8,11 +8,9 @@ from flask import Flask
 
 app = Flask(__name__)
 
-# Telegram Bot Credentials
 TELEGRAM_BOT_TOKEN = "8609436988:AAEEcnQgqZtlWPcOvMHgJGPhK8pTAz-TBeQ"
 TELEGRAM_CHAT_ID = "5573340878"
 
-# Volatility Indices
 SYMBOLS = [
     "R_10", "R_25", "R_50", "R_75", "R_100",
     "1HZ10V", "1HZ25V", "1HZ50V", "1HZ75V", "1HZ100V"
@@ -28,7 +26,7 @@ def send_telegram_msg(message):
 
 @app.route('/')
 def home():
-    return "Deriv 2-Candle Fast Signal Bot is Active 24/7!"
+    return "Deriv Fast Signal Bot with Heartbeat is Live!"
 
 async def monitor_symbol(symbol):
     uri = "wss://ws.derivws.com/websockets/v3?app_id=1089"
@@ -40,7 +38,7 @@ async def monitor_symbol(symbol):
                 req = {
                     "ticks_history": symbol,
                     "adjust_start_time": 1,
-                    "count": 15,
+                    "count": 10,
                     "end": "latest",
                     "style": "candles",
                     "granularity": 60,
@@ -61,11 +59,10 @@ async def monitor_symbol(symbol):
                         ohlc = res["ohlc"]
                         current_epoch = ohlc["open_time"]
                         
-                        # Candle එකක් සම්පූර්ණයෙන් Close වුණාම Check කරයි
                         if current_epoch != last_epoch and len(candles_list) >= 3:
-                            c1 = candles_list[-3] # 1st candle
-                            c2 = candles_list[-2] # 2nd candle
-                            c3 = candles_list[-1] # Newly closed 3rd candle (Reversal candle)
+                            c1 = candles_list[-3]
+                            c2 = candles_list[-2]
+                            c3 = candles_list[-1]
                             
                             c1_g = c1["close"] > c1["open"]
                             c2_g = c2["close"] > c2["open"]
@@ -75,24 +72,27 @@ async def monitor_symbol(symbol):
                             c2_r = c2["close"] < c2["open"]
                             c3_g = c3["close"] > c3["open"]
                             
-                            # Pattern 1: 🔴🔴 ➔ 🟢 (2 Red + 1 Green = BUY Signal)
+                            # Print to Render logs for confirmation
+                            print(f"[{symbol}] Checked Candle Close at {current_epoch}")
+                            
+                            # Pattern 1: 🔴🔴 ➔ 🟢 (BUY)
                             if c1_r and c2_r and c3_g:
                                 min_low = min(c1["low"], c2["low"])
                                 send_telegram_msg(
                                     f"🟢 *FAST BUY SIGNAL*\n\n"
                                     f"📊 *Market:* {symbol}\n"
-                                    f"🕯️ *Pattern:* 🔴🔴🟢 (2 Red + 1 Green)\n"
+                                    f"🕯️ *Pattern:* 🔴🔴🟢 (Reversal)\n"
                                     f"🎯 *Support Level:* {min_low}\n"
                                     f"⚡ *Action:* Open HIGHER Trade Now!"
                                 )
                                 
-                            # Pattern 2: 🟢🟢 ➔ 🔴 (2 Green + 1 Red = SELL Signal)
+                            # Pattern 2: 🟢🟢 ➔ 🔴 (SELL)
                             elif c1_g and c2_g and c3_r:
                                 max_high = max(c1["high"], c2["high"])
                                 send_telegram_msg(
                                     f"🔴 *FAST SELL SIGNAL*\n\n"
                                     f"📊 *Market:* {symbol}\n"
-                                    f"🕯️ *Pattern:* 🟢🟢🔴 (2 Green + 1 Red)\n"
+                                    f"🕯️ *Pattern:* 🟢🟢🔴 (Reversal)\n"
                                     f"🎯 *Resistance Level:* {max_high}\n"
                                     f"⚡ *Action:* Open LOWER Trade Now!"
                                 )
@@ -106,14 +106,15 @@ async def monitor_symbol(symbol):
                                 "close": float(ohlc["close"]),
                                 "epoch": ohlc["open_time"]
                             })
-                            if len(candles_list) > 30:
+                            if len(candles_list) > 20:
                                 candles_list.pop(0)
 
         except Exception as e:
+            print(f">>> Connection error on {symbol}: {e}. Retrying in 5s...")
             await asyncio.sleep(5)
 
 async def start_all_monitors():
-    send_telegram_msg("🚀 *Deriv Fast 2-Candle Signal Bot Activated!*")
+    send_telegram_msg("🚀 *Deriv Fast Engine 2.0 Live & Monitoring!*")
     tasks = [monitor_symbol(sym) for sym in SYMBOLS]
     await asyncio.gather(*tasks)
 
@@ -122,6 +123,7 @@ def run_async_loop():
     asyncio.set_event_loop(loop)
     loop.run_until_complete(start_all_monitors())
 
+# Start background thread
 t = threading.Thread(target=run_async_loop, daemon=True)
 t.start()
 
