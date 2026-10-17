@@ -16,13 +16,9 @@ def send_telegram_msg(message):
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
     try:
         res = requests.post(url, json=payload, timeout=10)
-        print(">>> Telegram Response:", res.json())
+        print(">>> Telegram API Response:", res.json())
     except Exception as e:
         print(">>> Telegram Request Error:", e)
-
-@app.route('/')
-def home():
-    return "Deriv Bot is Running 24/7!"
 
 async def connect_deriv():
     uri = "wss://ws.derivws.com/websockets/v3?app_id=1089"
@@ -50,10 +46,17 @@ def start_background_loop():
     asyncio.set_event_loop(loop)
     loop.run_until_complete(connect_deriv())
 
-# Thread එක මෙතනදීම කෙලින්ම Start කරනවා
-bot_thread = threading.Thread(target=start_background_loop)
-bot_thread.daemon = True
-bot_thread.start()
+# Server එක Start වෙන මොහොතෙම Thread එක Automatic Start කිරීමට:
+def init_bot():
+    t = threading.Thread(target=start_background_loop, daemon=True)
+    t.start()
+
+# Flask App එක load වෙද්දිම Bot එක Start වෙනවා
+init_bot()
+
+@app.route('/')
+def home():
+    return "Deriv Bot is Running 24/7!"
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
