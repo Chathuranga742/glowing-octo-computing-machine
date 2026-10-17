@@ -47,5 +47,4 @@ async def monitor_deriv():
                     print(f"Bullish candle detected: {close_price}")
             await asyncio.sleep(1)
 
-if name == "main":
 asyncio.run(monitor_deriv())
