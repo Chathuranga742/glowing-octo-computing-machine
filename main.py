@@ -1,9 +1,7 @@
-import asyncio
-import json
+import time
 import os
-import threading
 import requests
-import websockets
+import threading
 from flask import Flask
 
 app = Flask(__name__)
@@ -26,105 +24,111 @@ def send_telegram_msg(message):
 
 @app.route('/')
 def home():
-    return "Deriv Fast Signal Bot with Heartbeat is Live!"
+    return "Deriv Polling Engine Active 24/7!"
 
-async def monitor_symbol(symbol):
-    uri = "wss://ws.derivws.com/websockets/v3?app_id=1089"
-    headers = {"User-Agent": "Mozilla/5.0"}
+processed_epochs = {}
+
+def check_deriv_markets():
+    print(">>> Signal Engine Worker Started...")
+    send_telegram_msg("🚀 *Deriv Signal Engine 3.0 (Ultra-Reliable) Online!*")
     
     while True:
-        try:
-            async with websockets.connect(uri, extra_headers=headers) as websocket:
-                req = {
+        for symbol in SYMBOLS:
+            try:
+                # Deriv Direct REST Endpoint for Candle History
+                url = f"https://api.deriv.com/api-v1/candles?symbol={symbol}&granularity=60&count=5"
+                # Using Public Deriv API
+                ws_url = "https://wss.derivws.com/websockets/v3?app_id=1089"
+                
+                # Fetch candle history directly via API
+                payload = {
                     "ticks_history": symbol,
                     "adjust_start_time": 1,
-                    "count": 10,
+                    "count": 5,
                     "end": "latest",
                     "style": "candles",
-                    "granularity": 60,
-                    "subscribe": 1
+                    "granularity": 60
                 }
-                await websocket.send(json.dumps(req))
                 
-                candles_list = []
-                last_epoch = 0
+                res = requests.post("https://api.deriv.com/api/v1/ticks_history", json=payload, timeout=5)
+                # Fallback to direct HTTP request using Deriv HTTP API / WebSocket proxy if needed
+            except Exception as e:
+                pass
+
+        time.sleep(10)
+
+# Direct Lightweight Polling via Deriv WebSocket Request
+import websocket
+import json
+
+def on_message(ws, message):
+    data = json.loads(message)
+    if "candles" in data:
+        candles = data["candles"]
+        req_id = data.get("echo_req", {}).get("ticks_history", "")
+        
+        if len(candles) >= 3:
+            c1 = candles[-3]
+            c2 = candles[-2]
+            c3 = candles[-1]
+            
+            epoch = c3["epoch"]
+            if processed_epochs.get(req_id) != epoch:
+                c1_r = c1["close"] < c1["open"]
+                c2_r = c2["close"] < c2["open"]
+                c3_g = c3["close"] > c3["open"]
                 
-                while True:
-                    res = json.loads(await websocket.recv())
+                c1_g = c1["close"] > c1["open"]
+                c2_g = c2["close"] > c2["open"]
+                c3_r = c3["close"] < c3["open"]
+                
+                # 🔴🔴🟢 BUY Signal
+                if c1_r and c2_r and c3_g:
+                    min_low = min(c1["low"], c2["low"])
+                    send_telegram_msg(
+                        f"🟢 *FAST BUY SIGNAL*\n\n"
+                        f"📊 *Market:* {req_id}\n"
+                        f"🕯️ *Pattern:* 🔴🔴🟢 (2 Red + 1 Green)\n"
+                        f"🎯 *Support Level:* {min_low}\n"
+                        f"⚡ *Action:* Open HIGHER Trade Now!"
+                    )
+                    processed_epochs[req_id] = epoch
                     
-                    if "candles" in res:
-                        candles_list = res["candles"]
-                        
-                    elif "ohlc" in res:
-                        ohlc = res["ohlc"]
-                        current_epoch = ohlc["open_time"]
-                        
-                        if current_epoch != last_epoch and len(candles_list) >= 3:
-                            c1 = candles_list[-3]
-                            c2 = candles_list[-2]
-                            c3 = candles_list[-1]
-                            
-                            c1_g = c1["close"] > c1["open"]
-                            c2_g = c2["close"] > c2["open"]
-                            c3_r = c3["close"] < c3["open"]
-                            
-                            c1_r = c1["close"] < c1["open"]
-                            c2_r = c2["close"] < c2["open"]
-                            c3_g = c3["close"] > c3["open"]
-                            
-                            # Print to Render logs for confirmation
-                            print(f"[{symbol}] Checked Candle Close at {current_epoch}")
-                            
-                            # Pattern 1: 🔴🔴 ➔ 🟢 (BUY)
-                            if c1_r and c2_r and c3_g:
-                                min_low = min(c1["low"], c2["low"])
-                                send_telegram_msg(
-                                    f"🟢 *FAST BUY SIGNAL*\n\n"
-                                    f"📊 *Market:* {symbol}\n"
-                                    f"🕯️ *Pattern:* 🔴🔴🟢 (Reversal)\n"
-                                    f"🎯 *Support Level:* {min_low}\n"
-                                    f"⚡ *Action:* Open HIGHER Trade Now!"
-                                )
-                                
-                            # Pattern 2: 🟢🟢 ➔ 🔴 (SELL)
-                            elif c1_g and c2_g and c3_r:
-                                max_high = max(c1["high"], c2["high"])
-                                send_telegram_msg(
-                                    f"🔴 *FAST SELL SIGNAL*\n\n"
-                                    f"📊 *Market:* {symbol}\n"
-                                    f"🕯️ *Pattern:* 🟢🟢🔴 (Reversal)\n"
-                                    f"🎯 *Resistance Level:* {max_high}\n"
-                                    f"⚡ *Action:* Open LOWER Trade Now!"
-                                )
-                                
-                            last_epoch = current_epoch
-                            
-                            candles_list.append({
-                                "open": float(ohlc["open"]),
-                                "high": float(ohlc["high"]),
-                                "low": float(ohlc["low"]),
-                                "close": float(ohlc["close"]),
-                                "epoch": ohlc["open_time"]
-                            })
-                            if len(candles_list) > 20:
-                                candles_list.pop(0)
+                # 🟢🟢🔴 SELL Signal
+                elif c1_g and c2_g and c3_r:
+                    max_high = max(c1["high"], c2["high"])
+                    send_telegram_msg(
+                        f"🔴 *FAST SELL SIGNAL*\n\n"
+                        f"📊 *Market:* {req_id}\n"
+                        f"🕯️ *Pattern:* 🟢🟢🔴 (2 Green + 1 Red)\n"
+                        f"🎯 *Resistance Level:* {max_high}\n"
+                        f"⚡ *Action:* Open LOWER Trade Now!"
+                    )
+                    processed_epochs[req_id] = epoch
 
+def run_polling_loop():
+    send_telegram_msg("🚀 *Deriv Signal Engine 3.0 Activated!*")
+    while True:
+        try:
+            ws = websocket.create_connection("wss://ws.derivws.com/websockets/v3?app_id=1089")
+            for sym in SYMBOLS:
+                req = {
+                    "ticks_history": sym,
+                    "adjust_start_time": 1,
+                    "count": 5,
+                    "end": "latest",
+                    "style": "candles",
+                    "granularity": 60
+                }
+                ws.send(json.dumps(req))
+                res = ws.recv()
+                on_message(ws, res)
+            ws.close()
         except Exception as e:
-            print(f">>> Connection error on {symbol}: {e}. Retrying in 5s...")
-            await asyncio.sleep(5)
+            print(">>> Connection retry:", e)
+        time.sleep(10)
 
-async def start_all_monitors():
-    send_telegram_msg("🚀 *Deriv Fast Engine 2.0 Live & Monitoring!*")
-    tasks = [monitor_symbol(sym) for sym in SYMBOLS]
-    await asyncio.gather(*tasks)
-
-def run_async_loop():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(start_all_monitors())
-
-# Start background thread
-t = threading.Thread(target=run_async_loop, daemon=True)
+t = threading.Thread(target=run_polling_loop, daemon=True)
 t.start()
 
 if __name__ == "__main__":
