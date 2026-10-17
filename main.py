@@ -4,7 +4,7 @@ import requests
 import websockets
 
 # Telegram Details
-TELEGRAM_BOT_TOKEN = "8609436988:AAEEcnQgqZtlWPcOvMHgJGPhK8pTAz-TBeQ"
+TELEGRAM_BOT_TOKEN = "8609436988:AAEEcnQgqZtlWPcOvMHgJGPhK8pTAz-TBeQN"
 TELEGRAM_CHAT_ID = "5573340878"
 
 def send_telegram_msg(message):
